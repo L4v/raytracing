@@ -81,15 +81,14 @@ render()
 	  X < Width;
 	  ++X)
 	{
-	  uint8 Blue = X;
-	  uint8 Green = Y;
-	  uint8 Red = 1;
-	  *Pixel++ = ((Green << 8) | (Blue << 16));
-	  printf("%d\n", *Pixel);
+	  uint8 Blue = Y;
+	  uint8 Green = 0;
+	  uint8 Red = 0;
+	  // NOTE(l4v): Stored as RR GG BB XX
+	  *Pixel++ = ((Red << 24) | (Green << 16) | (Blue << 8));
 	}
       Row += Pitch;
     }
-
 
   FILE* File = fopen("../data/out.ppm", "wb");
   if(!File)
@@ -109,7 +108,10 @@ render()
 	  X < Width;
 	  ++X)
 	{
-	  fprintf(File, "%d", *Pixel++);
+	  uint8 Red = (uint8)((*Pixel) >> 24);
+	  uint8 Green = (uint8)((*Pixel) >> 16);
+	  uint8 Blue = (uint8)((*Pixel) >> 8);
+	  fprintf(File, "%c%c%c", Red, Green, Blue);
 	}
       Row += Pitch;
     }
