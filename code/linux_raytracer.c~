@@ -125,39 +125,56 @@ MinReal(real32 X, real32 Y)
 }
 
 internal bool32
-RayIntersect(Vector3f* Origin, Vector3f* Dir,
-	     Vector3f* Center, real32 Radius, real32* SphereDist)
+RayIntersect(Vector3f* RayOrigin, Vector3f* RayDirection, Vector3f* SphereCenter,
+	     real32 SphereRadius, real32* SphereDistance)
 {
-  // NOTE(l4v): Vector from the Origin of the array to the Center of the sphere
-  Vector3f L = Difference3D(Center, Origin);
-  // NOTE(l4v): Dot product of L and Direction
-  real32 CenterToRayLen = Dot3D(&L, Dir);
-  // NOTE(l4v): This is the (distance between Origin and Center projection) ^ 2
-  real32 D2 = Dot3D(&L, &L) - CenterToRayLen * CenterToRayLen;
 
-  // NOTE(l4v): If the D2 is greater than the Radius ^ 2 => there is no intersection
-  if(D2 > (Radius * Radius))
+  /* NOTE(l4v):
+     Sphere formula: dot((P - C), (P - C)) = r^2;
+     P - Point on sphere
+     C - Center of sphere
+     r - Radius of sphere
+
+     Ray formula: P(t) = A + t*B
+     P - Point on ray
+     A - Origin of ray
+     B - Unit direction vector of ray
+     t - Parameter used to move along the Ray vector
+
+     Combined formulas: dot((A + t*B - C), (A + t*B - C)) = r^2
+     When solved, you get: a*t^2 + b*t + c = 0
+     a = dot(B, B);
+     b = 2 * dot(B, A - C);
+     c = dot((A - C), (A - C)) - r^2
+
+     Then just check whether the determinant
+     D = b^2 - 4ac
+     Is < 0 - No intersection
+     Is = 0 - One point intersection
+     Is > 0 - Two point intersection (take the lesser positive point)
+
+     The point of intersection represents the distance
+     from the ray origin to the sphere
+  */
+  
+  // NOTE(l4v): Here I used uppercase A, B, C, they are
+  // the lowercase equivalent from above
+  Vector3f OC = Difference3D(RayOrigin, SphereCenter);
+  Vector3f Dir = Normalize3D(RayDirection);
+  real32 A = Dot3D(&Dir, &Dir);
+  real32 B = 2.0f * Dot3D(&OC, &Dir);
+  real32 C = Dot3D(&OC, &OC) - SphereRadius * SphereRadius;
+  real32 Discriminant = B*B - 4*A*C;
+
+  if(Discriminant < 0)
     {
+      // NOTE(l4v): No intersection
       return 0;
     }
-  // NOTE(l4v): Distance from the projected dot onto the Ray to the
-  // first point of intersection
-  real32 PCI1Distance = sqrt(Radius * Radius - D2);
-
-  // NOTE(l4v): Distance from Origin to first intersection
-  *SphereDist = CenterToRayLen - PCI1Distance;
-  // NOTE(l4v): Distance from Origin to second intersection
-  real32 T1 = CenterToRayLen + PCI1Distance;
-  // NOTE(l4v): There is only one interseciton maybe
-  if(*SphereDist < 0)
-    {
-      *SphereDist = T1;
-    }
-  // NOTE(l4v): There are no intersections
-  if(*SphereDist < 0)
-    {
-      return 0;
-    }
+  
+  // NOTE(l4v): If the quadratic has a solution, set the distance
+  // as the lesser positive point
+  *SphereDistance = ((-B - sqrt(Discriminant)) / (2.0f * A));
   return 1;
 }
 

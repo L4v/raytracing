@@ -1,0 +1,12 @@
+#ifndef LINUX_RAYTRACER_H
+
+typedef struct
+{
+  void* Memory;
+  int32 Width;
+  int32 Height;
+  int32 BytesPerPixel;
+} linux_offscreen_buffer;
+
+#define LINUX_RAYTACER_H
+#endif

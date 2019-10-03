@@ -6,7 +6,7 @@ CommonCompilerFlags=(-Wall -Werror -Wl,-rpath,'$ORIGIN'
 		    -Wno-unused-but-set-variable)
 CommonLinkerFlags=(-lm)
 
-gcc ${CommonCompilerFlags[*]} ../code/main.c -o rtracer ${CommonLinkerFlags[*]}
+gcc ${CommonCompilerFlags[*]} ../code/linux_raytracer.c -o rtracer ${CommonLinkerFlags[*]}
 
 popd
 
