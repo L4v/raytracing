@@ -137,31 +137,38 @@ CastRay(vector3f* Origin, vector3f* Dir, game_state* GameState)
 	{
 	  vector3f LightDir = Difference3D(&GameState->Lights[LightsIndex].Position, &Point);
 	  LightDir = Normalize3D(&LightDir);
-	  
+
+#if SHADOWS
 	  // NOTE(l4v): Shadows
 	  // ------------------
-	  real32 LightDistance = GetLen3D(Difference3D(&GameState->Lights[LightsIndex].Position, &Point));
+	  vector3f Tmp = {};
+	  Tmp = Difference3D(&GameState->Lights[LightsIndex].Position, &Point);
+	  real32 LightDistance = sqrt(Dot(&Tmp, &Tmp));
 	  vector3f ShadowOrigin = {};
 	  // NOTE(l4v): Check if point lies in the shadow of the currnet light
 	  // IMPORTANT TODO(l4v): FIX SHADOWS!!!
 	  if(Dot3D(&LightDir, &Normal) < 0)
 	    {
-	      vector3f ScaledNormal = Scale3D(&Normal, 1e-3);
+	      vector3f ScaledNormal = Scale3D(&Normal, 0.001f);
 	      ShadowOrigin = Difference3D(&Point, &ScaledNormal);
 	    }
 	  else
 	    {
-	      vector3f ScaledNormal = Scale3D(&Normal, 1e-3);
-	      ShadowOrigin = Add3D(&Point, &ScaledNormal); 
+	      vector3f ScaledNormal = Scale3D(&Normal, 0.001f);
+	      ShadowOrigin = Add3D(&Point, &ScaledNormal);
 	    }
 	  vector3f ShadowPoint = {};
 	  vector3f ShadowNormal = {};
 	  material TmpMaterial;
 	  if(SceneIntersect(&ShadowOrigin, &LightDir, &ShadowPoint, &ShadowNormal, &TmpMaterial, GameState)
-	     && GetLen3D(Difference3D(&ShadowPoint, &ShadowOrigin)) < LightDistance)
 	    {
-	      continue;
+	      // TODO(l4v): FINISH!
+	      if( )
+	      {
+		continue;
+	      }
 	    }
+#endif
 	    
 	  // NOTE(l4v): Diffusion
 	  // --------------------
