@@ -19,7 +19,7 @@ typedef struct
       real32 Z;
     };
   };
-} Vector3f;
+} vector3f;
 
 typedef struct
 {
@@ -31,12 +31,37 @@ typedef struct
       real32 Y;
     };
   };
-} Vector2f;
-internal Vector3f
-Difference3D(Vector3f* A, Vector3f* B)
+} vector2f;
+
+typedef struct
+{
+  vector3f Center;
+  real32 Radius;
+  uint32 Color;
+} sphere;
+
+typedef struct
+{
+  sphere Spheres[4];
+  int32 SphereCount;
+} game_state;
+
+internal vector3f
+Add3D(vector3f* A, vector3f* B)
+{
+  vector3f Result = {};
+  Result.X = A->X + B->X;
+  Result.Y = A->Y + B->Y;
+  Result.Z = A->Z + B->Z;
+
+  return Result;
+}
+
+internal vector3f
+Difference3D(vector3f* A, vector3f* B)
 {
   // NOTE(l4v): A - B
-  Vector3f Result = {};
+  vector3f Result = {};
   Result.X = A->X - B->X;
   Result.Y = A->Y - B->Y;
   Result.Z = A->Z - B->Z;
@@ -44,21 +69,21 @@ Difference3D(Vector3f* A, Vector3f* B)
   return Result;
 }
 
-internal Vector2f
-Difference2D(Vector2f* A, Vector2f* B)
+internal vector2f
+Difference2D(vector2f* A, vector2f* B)
 {
   // NOTE(l4v): A - B
-  Vector2f Result = {};
+  vector2f Result = {};
   Result.X = A->X - B->X;
   Result.Y = A->Y - B->Y;
 
   return Result;
 }
 
-internal Vector3f
-Scale3D(Vector3f* A, real32 Scale)
+internal vector3f
+Scale3D(vector3f* A, real32 Scale)
 {
-  Vector3f Result = {};
+  vector3f Result = {};
   Result.X = Scale * A->X;
   Result.Y = Scale * A->Y;
   Result.Z = Scale * A->Z;
@@ -67,15 +92,15 @@ Scale3D(Vector3f* A, real32 Scale)
 }
 
 internal inline real32
-Dot3D(Vector3f* A, Vector3f* B)
+Dot3D(vector3f* A, vector3f* B)
 {
   return A->X * B->X + A->Y * B->Y + A->Z * B->Z;
 }
 
-internal Vector3f
-Normalize3D(Vector3f* A)
+internal vector3f
+Normalize3D(vector3f* A)
 {
-  Vector3f Result = {};
+  vector3f Result = {};
   real32 Length = sqrt(Dot3D(A, A));
   Result.X = A->X / Length;
   Result.Y = A->Y / Length;

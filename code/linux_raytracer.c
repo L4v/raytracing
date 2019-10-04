@@ -35,8 +35,8 @@ typedef double real64;
 global_variable linux_offscreen_buffer GlobalBackBuffer;
 
 internal bool32
-RayIntersect(Vector3f* RayOrigin, Vector3f* RayDirection, Vector3f* SphereCenter,
-	     real32 SphereRadius, real32* SphereDistance)
+RayIntersect(vector3f* RayOrigin, vector3f* RayDirection,
+	     sphere* Sphere, real32* SphereDistance)
 {
 
   /* NOTE(l4v):
@@ -69,11 +69,11 @@ RayIntersect(Vector3f* RayOrigin, Vector3f* RayDirection, Vector3f* SphereCenter
   
   // NOTE(l4v): Here I used uppercase A, B, C, they are
   // the lowercase equivalent from above
-  Vector3f OC = Difference3D(RayOrigin, SphereCenter);
-  Vector3f Dir = Normalize3D(RayDirection);
+  vector3f OC = Difference3D(RayOrigin, &Sphere->Center);
+  vector3f Dir = Normalize3D(RayDirection);
   real32 A = Dot3D(&Dir, &Dir);
   real32 B = 2.0f * Dot3D(&OC, &Dir);
-  real32 C = Dot3D(&OC, &OC) - SphereRadius * SphereRadius;
+  real32 C = Dot3D(&OC, &OC) - Sphere->Radius * Sphere->Radius;
   real32 Discriminant = B*B - 4*A*C;
 
   if(Discriminant < 0)
@@ -88,68 +88,97 @@ RayIntersect(Vector3f* RayOrigin, Vector3f* RayDirection, Vector3f* SphereCenter
   return 1;
 }
 
-internal uint32
-CastRay(Vector3f* Origin, Vector3f* Dir, Vector3f* Center, real32 Radius)
+internal bool32
+SceneIntersect(vector3f* Origin, vector3f* Dir,
+	       vector3f* Hit, vector3f* Normal,
+	       uint32* Color, game_state* GameState)
 {
   real32 SphereDistance = FLT_MAX;
-  uint32 Result = 0;
-  // NOTE(l4v): Sphere color
-  uint8 Red = (uint8)(0.4f * 255);
-  uint8 Green = (uint8)(0.4f * 255);
-  uint8 Blue = (uint8)(0.3f * 255);
-  
-  if(!RayIntersect(Origin, Dir, Center, Radius, &SphereDistance))
+  for(size_t SphereIndex = 0;
+      SphereIndex < GameState->SphereCount;
+      ++SphereIndex)
     {
-      // NOTE(l4v): Background color
-      Red = (uint8)(0.2f * 255);
-      Green = (uint8)(0.7f * 255);
-      Blue = (uint8)(0.8f * 255);
+      real32 DistI;
+      if(RayIntersect(Origin, Dir, &GameState->Spheres[SphereIndex], &DistI) && DistI < SphereDistance)
+	{
+	  SphereDistance = DistI;
+	  vector3f ScaledDir = Scale3D(Dir, DistI);
+	  *Hit = Add3D(Origin, &ScaledDir);
+	  vector3f HitDistance = Difference3D(Hit, &GameState->Spheres[SphereIndex].Center);
+	  *Normal = Normalize3D(&HitDistance);
+	  *Color = GameState->Spheres[SphereIndex].Color;
+	}
     }
+  return (SphereDistance < 1000);
+}
+
+internal uint32
+CastRay(vector3f* Origin, vector3f* Dir, game_state* GameState)
+{
+  vector3f Point = {};
+  vector3f Normal = {};
+  uint32 Result = 0;
+  uint32 Color = 0;
+  // NOTE(l4v): Background color
+  uint8 Red = (uint8)(0.2f * 255);
+  uint8 Green = (uint8)(0.7f * 255);
+  uint8 Blue = (uint8)(0.8f * 255);
   Result = ((Red << 24) | (Green << 16) | (Blue << 8));
+
+  if(SceneIntersect(Origin, Dir, &Point, &Normal, &Color, GameState))
+    {
+      Result = Color;
+    }
   return Result;
 }
 
 internal void
-render(Vector3f* SphereCenter, real32 SphereRadius, linux_offscreen_buffer* Buffer)
+Render(game_state* GameState, linux_offscreen_buffer* Buffer)
 {
   real32 FOV = Pi32 / 2.0f;
-  // NOTE(l4v): Generating gradient image
   uint32* Pixel = (uint32*)Buffer->Memory;
-  for(int32 Y = 0;
-      Y < Buffer->Height;
-      ++Y)
-    {
-      for(int32 X = 0;
-	  X < Buffer->Width;
-	  ++X)
-	{
-	  uint8 Blue = 0;
-	  uint8 Green = 255 * (X / (real32)Buffer->Width);
-	  uint8 Red = 255 * (Y / (real32)Buffer->Height);
-	  // NOTE(l4v): Stored as RR GG BB XX
-	  *Pixel++ = ((Red << 24) | (Green << 16) | (Blue << 8));
-	}
-    }
+  /* // NOTE(l4v): Generating gradient image */
+  /* for(int32 Y = 0; */
+  /*     Y < Buffer->Height; */
+  /*     ++Y) */
+  /*   { */
+  /*     for(int32 X = 0; */
+  /* 	  X < Buffer->Width; */
+  /* 	  ++X) */
+  /* 	{ */
+  /* 	  uint8 Blue = 0; */
+  /* 	  uint8 Green = 255 * (X / (real32)Buffer->Width); */
+  /* 	  uint8 Red = 255 * (Y / (real32)Buffer->Height); */
+  /* 	  // NOTE(l4v): Stored as RR GG BB XX */
+  /* 	  *Pixel++ = ((Red << 24) | (Green << 16) | (Blue << 8)); */
+  /* 	} */
+  /*   } */
 
-  Pixel = (uint32*)Buffer->Memory;
-  for(size_t Row = 0;
-      Row < Buffer->Height;
-      ++Row)
+  // NOTE(l4v): Drawing the scene
+  for(int32 SphereIndex = 0;
+      SphereIndex < GameState->SphereCount;
+      ++SphereIndex)
     {
-      for(size_t Column = 0;
-	  Column < Buffer->Width;
-	  ++Column)
+      sphere* Sphere = &GameState->Spheres[SphereIndex];
+      Pixel = (uint32*)Buffer->Memory;
+      for(size_t Row = 0;
+	  Row < Buffer->Height;
+	  ++Row)
 	{
-	  real32 X = (2 * (Column + 0.5f) / (real32)Buffer->Width - 1) *
-	    tan(FOV / 2.0f) * Buffer->Width / (real32)Buffer->Height;
-	  real32 Y = -(2 * (Row + 0.5f) / (real32)Buffer->Height - 1) * tan(FOV / 2.0f);
-	  Vector3f Temp = {.X = X, .Y = Y, .Z = -1};
-	  Vector3f Dir = Normalize3D(&Temp);
-	  Vector3f Zero3D = {};
-	  *Pixel++ = CastRay(&Zero3D, &Dir, SphereCenter, SphereRadius);
+	  for(size_t Column = 0;
+	      Column < Buffer->Width;
+	      ++Column)
+	    {
+	      real32 X = (2 * (Column + 0.5f) / (real32)Buffer->Width - 1) *
+		tan(FOV / 2.0f) * Buffer->Width / (real32)Buffer->Height;
+	      real32 Y = -(2 * (Row + 0.5f) / (real32)Buffer->Height - 1) * tan(FOV / 2.0f);
+	      vector3f Temp = {.X = X, .Y = Y, .Z = -1};
+	      vector3f Dir = Normalize3D(&Temp);
+	      vector3f Zero3D = {};
+	      *Pixel++ = CastRay(&Zero3D, &Dir, GameState);
+	    }
 	}
     }
-  
 
   // NOTE(l4v): Writing image data to file
   FILE* File = fopen("../data/out.ppm", "wb");
@@ -188,9 +217,33 @@ int main()
 				 MAP_ANONYMOUS | MAP_PRIVATE,
 				 -1,
 				 0);
-  Vector3f SphereCenter = {.X = -3, .Y = 0, .Z = -16};
-  real32 SphereRadius = 2;
-  render(&SphereCenter, SphereRadius, &GlobalBackBuffer);
+  uint32 Ivory = (((uint8)(255 * 0.4f) << 24) | ((uint8)(255 * 0.4f) << 16) | ((uint8)(255 * 0.3) << 8));
+  uint32 RedRubber = (((uint8)(255 * 0.3f) << 24) | ((uint8)(255 * 0.1f) << 16) | ((uint8)(255 * 0.1) << 8));
+  
+  game_state GameState = {};
+  GameState.SphereCount = 4;
+  
+  GameState.Spheres[0].Center =
+    (vector3f){.X = -3 , .Y = 0, .Z = -16};
+  GameState.Spheres[0].Radius = 2;
+  GameState.Spheres[0].Color = Ivory;
+  
+  GameState.Spheres[1].Center =
+    (vector3f){.X = -1.0f , .Y = -1.5f, .Z = -12};
+  GameState.Spheres[1].Radius = 2;
+  GameState.Spheres[1].Color = RedRubber;
+  
+  GameState.Spheres[2].Center =
+    (vector3f){.X = 1.5f , .Y = -0.5f, .Z = -18};
+  GameState.Spheres[2].Radius = 3;
+  GameState.Spheres[2].Color = RedRubber;
+  
+  GameState.Spheres[3].Center =
+    (vector3f){.X = 7 , .Y = 5, .Z = -18};
+  GameState.Spheres[3].Radius = 4;
+  GameState.Spheres[3].Color = Ivory;
+  
+  Render(&GameState, &GlobalBackBuffer);
 
   munmap(GlobalBackBuffer.Memory, FrameBufferSize);
   return 0;
