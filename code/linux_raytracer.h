@@ -35,10 +35,17 @@ typedef struct
 
 typedef struct
 {
+  vector3f DiffuseColor;
+  vector2f Albedo;
+  real32 SpecularExponent;
+} material;
+
+typedef struct
+{
   vector3f Center;
   real32 Radius;
   
-  vector3f Color;
+  material Material;
 } sphere;
 
 typedef struct
@@ -52,7 +59,7 @@ typedef struct
   sphere Spheres[4];
   int32 SphereCount;
 
-  light Lights[1];
+  light Lights[3];
   int32 LightCount;
 } game_state;
 
@@ -123,6 +130,12 @@ Dot3D(vector3f* A, vector3f* B)
   return A->X * B->X + A->Y * B->Y + A->Z * B->Z;
 }
 
+internal inline real32
+GetLen3D(vector3f A)
+{
+  return sqrt(A.X * A.X + A.Y * A.Y + A.Z * A.Z);
+}
+
 internal vector3f
 Normalize3D(vector3f* A)
 {
@@ -132,6 +145,17 @@ Normalize3D(vector3f* A)
   Result.Y = A->Y / Length;
   Result.Z = A->Z / Length;
 
+  return Result;
+}
+
+internal vector3f
+Reflect3D(vector3f* A, vector3f* B)
+{
+  vector3f Result = {};
+  real32 ABDot = Dot3D(A, B);
+  vector3f ScaledB = Scale3D(B, 2.0f * ABDot);
+  Result = Difference3D(A, &ScaledB); 
+  
   return Result;
 }
 

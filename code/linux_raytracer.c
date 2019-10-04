@@ -92,7 +92,7 @@ RayIntersect(vector3f* RayOrigin, vector3f* RayDirection,
 internal bool32
 SceneIntersect(vector3f* Origin, vector3f* Dir,
 	       vector3f* Hit, vector3f* Normal,
-	       vector3f* Color, game_state* GameState)
+	       material* Material, game_state* GameState)
 {
   real32 SphereDistance = FLT_MAX;
   for(size_t SphereIndex = 0;
@@ -107,7 +107,7 @@ SceneIntersect(vector3f* Origin, vector3f* Dir,
 	  *Hit = Add3D(Origin, &ScaledDir);
 	  vector3f HitDistance = Difference3D(Hit, &GameState->Spheres[SphereIndex].Center);
 	  *Normal = Normalize3D(&HitDistance);
-	  *Color = GameState->Spheres[SphereIndex].Color;
+	  *Material = GameState->Spheres[SphereIndex].Material;
 	}
     }
   return (SphereDistance < 1000);
@@ -119,26 +119,67 @@ CastRay(vector3f* Origin, vector3f* Dir, game_state* GameState)
   vector3f Point = {};
   vector3f Normal = {};
   vector3f Result = {};
-  vector3f Color = {};
+  material Material = {};
   // NOTE(l4v): Background color
-  Color.X = 0.2f;
-  Color.Y = 0.7f;
-  Color.Z = 0.8f;
-  Result = Color;
+  Material.DiffuseColor.X = 0.2f;
+  Material.DiffuseColor.Y = 0.7f;
+  Material.DiffuseColor.Z = 0.8f;
+  Result = Material.DiffuseColor;
 
-  if(SceneIntersect(Origin, Dir, &Point, &Normal, &Color, GameState))
+  if(SceneIntersect(Origin, Dir, &Point, &Normal, &Material, GameState))
     {
       // NOTE(l4v): Return sphere color
       real32 Diffusion = 0;
+      real32 Specular = 0;
       for(size_t LightsIndex = 0;
 	  LightsIndex < GameState->LightCount;
 	  ++LightsIndex)
 	{
 	  vector3f LightDir = Difference3D(&GameState->Lights[LightsIndex].Position, &Point);
 	  LightDir = Normalize3D(&LightDir);
+	  
+	  // NOTE(l4v): Shadows
+	  // ------------------
+	  real32 LightDistance = GetLen3D(Difference3D(&GameState->Lights[LightsIndex].Position, &Point));
+	  vector3f ShadowOrigin = {};
+	  // NOTE(l4v): Check if point lies in the shadow of the currnet light
+	  // IMPORTANT TODO(l4v): FIX SHADOWS!!!
+	  if(Dot3D(&LightDir, &Normal) < 0)
+	    {
+	      vector3f ScaledNormal = Scale3D(&Normal, 1e-3);
+	      ShadowOrigin = Difference3D(&Point, &ScaledNormal);
+	    }
+	  else
+	    {
+	      vector3f ScaledNormal = Scale3D(&Normal, 1e-3);
+	      ShadowOrigin = Add3D(&Point, &ScaledNormal); 
+	    }
+	  vector3f ShadowPoint = {};
+	  vector3f ShadowNormal = {};
+	  material TmpMaterial;
+	  if(SceneIntersect(&ShadowOrigin, &LightDir, &ShadowPoint, &ShadowNormal, &TmpMaterial, GameState)
+	     && GetLen3D(Difference3D(&ShadowPoint, &ShadowOrigin)) < LightDistance)
+	    {
+	      continue;
+	    }
+	    
+	  // NOTE(l4v): Diffusion
+	  // --------------------
 	  Diffusion += GameState->Lights[LightsIndex].Intensity * MaxReal(0.0f, Dot3D(&LightDir, &Normal));
+
+	  // NOTE(l4v): Specular
+	  // -------------------
+	  LightDir = Scale3D(&LightDir, -1);
+	  vector3f Reflected = Reflect3D(&LightDir, &Normal);
+	  Reflected = Scale3D(&Reflected, -1);
+	  Specular += pow(MaxReal(0.0f, Dot3D(&Reflected, &LightDir)), Material.SpecularExponent) *
+	    GameState->Lights[LightsIndex].Intensity;
+
 	}
-      Result = Scale3D(&Color, Diffusion);
+      Result = Scale3D(&Material.DiffuseColor, Diffusion * Material.Albedo.X);
+      vector3f Identity = {.X = 1, .Y = 1, .Z = 1};
+      Identity = Scale3D(&Identity, Specular * Material.Albedo.Y);
+      Result = Add3D(&Result, &Identity);
     }
   return Result;
 }
@@ -187,6 +228,11 @@ Render(game_state* GameState, linux_offscreen_buffer* Buffer)
 	      vector3f Dir = Normalize3D(&Temp);
 	      vector3f Zero3D = {};
 	      vector3f RealColor = CastRay(&Zero3D, &Dir, GameState);
+	      real32 MaxValue = MaxReal(RealColor.X, MaxReal(RealColor.Y, RealColor.Z));
+	      if(MaxValue > 1)
+		{
+		  RealColor = Scale3D(&RealColor, 1.0f / MaxValue);
+		}
 	      *Pixel++ = ((RoundReal32ToUInt32(RealColor.X * 255.0f) << 24) |
 			  (RoundReal32ToUInt32(RealColor.Y * 255.0f) << 16) |
 			  (RoundReal32ToUInt32(RealColor.Z * 255.0f) << 8));
@@ -231,8 +277,15 @@ int main()
 				 MAP_ANONYMOUS | MAP_PRIVATE,
 				 -1,
 				 0);
-  vector3f Ivory = {.X = 0.4f, .Y = 0.4f, .Z = 0.3};
-  vector3f RedRubber = {.X = 0.3f, .Y = 0.1f, .Z = 0.1f};
+  material Ivory = {};
+  Ivory.Albedo = (vector2f){.X = 0.6f, .Y = 0.3f};
+  Ivory.DiffuseColor = (vector3f){.X = 0.4f, .Y = 0.4f, .Z = 0.3f};
+  Ivory.SpecularExponent = 50.0f;
+  material RedRubber = {};
+  RedRubber.Albedo = (vector2f){.X = 0.9f, .Y = 0.1f};
+  RedRubber.DiffuseColor = (vector3f){.X = 0.3f, .Y = 0.1f, .Z = 0.1f};
+  RedRubber.SpecularExponent = 10.0f;
+  
   
   game_state GameState = {};
   GameState.SphereCount = ArrayCount(GameState.Spheres);
@@ -240,26 +293,32 @@ int main()
 
   GameState.Lights[0].Position = (vector3f){.X = -20, .Y = 20, .Z = 20};
   GameState.Lights[0].Intensity = 1.5f;
+
+  GameState.Lights[1].Position = (vector3f){.X = 30, .Y = 50, .Z = -25};
+  GameState.Lights[1].Intensity = 1.8f;
+  
+  GameState.Lights[2].Position = (vector3f){.X = 30, .Y = 20, .Z = 30};
+  GameState.Lights[2].Intensity = 1.7f;
   
   GameState.Spheres[0].Center =
     (vector3f){.X = -3 , .Y = 0, .Z = -16};
   GameState.Spheres[0].Radius = 2;
-  GameState.Spheres[0].Color = Ivory;
+  GameState.Spheres[0].Material = Ivory;
   
   GameState.Spheres[1].Center =
     (vector3f){.X = -1.0f , .Y = -1.5f, .Z = -12};
   GameState.Spheres[1].Radius = 2;
-  GameState.Spheres[1].Color = RedRubber;
+  GameState.Spheres[1].Material = RedRubber;
   
   GameState.Spheres[2].Center =
     (vector3f){.X = 1.5f , .Y = -0.5f, .Z = -18};
   GameState.Spheres[2].Radius = 3;
-  GameState.Spheres[2].Color = RedRubber;
+  GameState.Spheres[2].Material = RedRubber;
   
   GameState.Spheres[3].Center =
     (vector3f){.X = 7 , .Y = 5, .Z = -18};
   GameState.Spheres[3].Radius = 4;
-  GameState.Spheres[3].Color = Ivory;
+  GameState.Spheres[3].Material = Ivory;
   
   Render(&GameState, &GlobalBackBuffer);
 
