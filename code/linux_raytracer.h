@@ -37,14 +37,40 @@ typedef struct
 {
   vector3f Center;
   real32 Radius;
-  uint32 Color;
+  
+  vector3f Color;
 } sphere;
+
+typedef struct
+{
+  vector3f Position;
+  real32 Intensity;
+} light;
 
 typedef struct
 {
   sphere Spheres[4];
   int32 SphereCount;
+
+  light Lights[1];
+  int32 LightCount;
 } game_state;
+
+internal int32
+RoundReal32ToInt32(real32 Real32)
+{
+  int32 Result = (int32)(Real32 + 0.5f);
+  
+  return Result;
+}
+
+internal uint32
+RoundReal32ToUInt32(real32 Real32)
+{
+  uint32 Result = (uint32)(Real32 + 0.5f);
+  
+  return Result;
+}
 
 internal vector3f
 Add3D(vector3f* A, vector3f* B)

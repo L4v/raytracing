@@ -29,6 +29,7 @@ typedef double real64;
 #define local_persist static
 #define Assert(Expression)			\
   if(!(Expression)) {*(int*)0 = 0;}
+#define ArrayCount(Array) (sizeof(Array) / sizeof((Array)[0]))
 
 #include "linux_raytracer.h"
 
@@ -91,7 +92,7 @@ RayIntersect(vector3f* RayOrigin, vector3f* RayDirection,
 internal bool32
 SceneIntersect(vector3f* Origin, vector3f* Dir,
 	       vector3f* Hit, vector3f* Normal,
-	       uint32* Color, game_state* GameState)
+	       vector3f* Color, game_state* GameState)
 {
   real32 SphereDistance = FLT_MAX;
   for(size_t SphereIndex = 0;
@@ -112,22 +113,32 @@ SceneIntersect(vector3f* Origin, vector3f* Dir,
   return (SphereDistance < 1000);
 }
 
-internal uint32
+internal vector3f
 CastRay(vector3f* Origin, vector3f* Dir, game_state* GameState)
 {
   vector3f Point = {};
   vector3f Normal = {};
-  uint32 Result = 0;
-  uint32 Color = 0;
+  vector3f Result = {};
+  vector3f Color = {};
   // NOTE(l4v): Background color
-  uint8 Red = (uint8)(0.2f * 255);
-  uint8 Green = (uint8)(0.7f * 255);
-  uint8 Blue = (uint8)(0.8f * 255);
-  Result = ((Red << 24) | (Green << 16) | (Blue << 8));
+  Color.X = 0.2f;
+  Color.Y = 0.7f;
+  Color.Z = 0.8f;
+  Result = Color;
 
   if(SceneIntersect(Origin, Dir, &Point, &Normal, &Color, GameState))
     {
-      Result = Color;
+      // NOTE(l4v): Return sphere color
+      real32 Diffusion = 0;
+      for(size_t LightsIndex = 0;
+	  LightsIndex < GameState->LightCount;
+	  ++LightsIndex)
+	{
+	  vector3f LightDir = Difference3D(&GameState->Lights[LightsIndex].Position, &Point);
+	  LightDir = Normalize3D(&LightDir);
+	  Diffusion += GameState->Lights[LightsIndex].Intensity * MaxReal(0.0f, Dot3D(&LightDir, &Normal));
+	}
+      Result = Scale3D(&Color, Diffusion);
     }
   return Result;
 }
@@ -175,7 +186,10 @@ Render(game_state* GameState, linux_offscreen_buffer* Buffer)
 	      vector3f Temp = {.X = X, .Y = Y, .Z = -1};
 	      vector3f Dir = Normalize3D(&Temp);
 	      vector3f Zero3D = {};
-	      *Pixel++ = CastRay(&Zero3D, &Dir, GameState);
+	      vector3f RealColor = CastRay(&Zero3D, &Dir, GameState);
+	      *Pixel++ = ((RoundReal32ToUInt32(RealColor.X * 255.0f) << 24) |
+			  (RoundReal32ToUInt32(RealColor.Y * 255.0f) << 16) |
+			  (RoundReal32ToUInt32(RealColor.Z * 255.0f) << 8));
 	    }
 	}
     }
@@ -217,11 +231,15 @@ int main()
 				 MAP_ANONYMOUS | MAP_PRIVATE,
 				 -1,
 				 0);
-  uint32 Ivory = (((uint8)(255 * 0.4f) << 24) | ((uint8)(255 * 0.4f) << 16) | ((uint8)(255 * 0.3) << 8));
-  uint32 RedRubber = (((uint8)(255 * 0.3f) << 24) | ((uint8)(255 * 0.1f) << 16) | ((uint8)(255 * 0.1) << 8));
+  vector3f Ivory = {.X = 0.4f, .Y = 0.4f, .Z = 0.3};
+  vector3f RedRubber = {.X = 0.3f, .Y = 0.1f, .Z = 0.1f};
   
   game_state GameState = {};
-  GameState.SphereCount = 4;
+  GameState.SphereCount = ArrayCount(GameState.Spheres);
+  GameState.LightCount = ArrayCount(GameState.Lights);
+
+  GameState.Lights[0].Position = (vector3f){.X = -20, .Y = 20, .Z = 20};
+  GameState.Lights[0].Intensity = 1.5f;
   
   GameState.Spheres[0].Center =
     (vector3f){.X = -3 , .Y = 0, .Z = -16};
