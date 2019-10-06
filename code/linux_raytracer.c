@@ -70,11 +70,11 @@ RayIntersect(vector3f* RayOrigin, vector3f* RayDirection,
   
   // NOTE(l4v): Here I used uppercase A, B, C, they are
   // the lowercase equivalent from above
-  vector3f OC = Difference3D(RayOrigin, &Sphere->Center);
+  vector3f OC = Subtract3D(RayOrigin, &Sphere->Center);
   vector3f Dir = Normalize3D(RayDirection);
   real32 A = Dot3D(&Dir, &Dir);
   real32 B = 2.0f * Dot3D(&OC, &Dir);
-  real32 C = Dot3D(&OC, &OC) - Sphere->Radius * Sphere->Radius;
+  real32 C = Dot3D(&OC, &OC) - (Sphere->Radius * Sphere->Radius);
   real32 Discriminant = B*B - 4*A*C;
 
   if(Discriminant < 0)
@@ -94,18 +94,31 @@ SceneIntersect(vector3f* Origin, vector3f* Dir,
 	       vector3f* Hit, vector3f* Normal,
 	       material* Material, game_state* GameState)
 {
+  /* NOTE(l4v):
+     Cycles through each sphere in the scene and checks
+     whether there is a collision with the ray and the sphere.
+     If there is a collision it checks whether the distance from
+     the point of collision is less than the previous distance,
+     in other words: it finds the closest sphere that the ray
+     has collided with.
+
+     When it has found the closest sphere, the point of collision
+     is calculated as Hit and the normal to the point as Normal,
+     as well as the Material of the collided sphere
+   */
   real32 SphereDistance = FLT_MAX;
   for(size_t SphereIndex = 0;
       SphereIndex < GameState->SphereCount;
       ++SphereIndex)
     {
-      real32 DistI;
+      real32 DistI = 0;
       if(RayIntersect(Origin, Dir, &GameState->Spheres[SphereIndex], &DistI) && DistI < SphereDistance)
 	{
 	  SphereDistance = DistI;
 	  vector3f ScaledDir = Scale3D(Dir, DistI);
+	  // NOTE(l4v): Ray(vector) = RayOrigin(vector) + RayDirection(vector) * RayLength(scalar)
 	  *Hit = Add3D(Origin, &ScaledDir);
-	  vector3f HitToCenter = Difference3D(Hit, &GameState->Spheres[SphereIndex].Center);
+	  vector3f HitToCenter = Subtract3D(Hit, &GameState->Spheres[SphereIndex].Center);
 	  *Normal = Normalize3D(&HitToCenter);
 	  *Material = GameState->Spheres[SphereIndex].Material;
 	}
@@ -114,72 +127,92 @@ SceneIntersect(vector3f* Origin, vector3f* Dir,
 }
 
 internal vector3f
-CastRay(vector3f* Origin, vector3f* Dir, game_state* GameState)
+CastRay(vector3f* Origin, vector3f* Dir, game_state* GameState, size_t Depth)
 {
   vector3f Point = {};
   vector3f Normal = {};
   vector3f Result = {};
   material Material = {};
-  // NOTE(l4v): Background color
-  Material.DiffuseColor.X = 0.2f;
-  Material.DiffuseColor.Y = 0.7f;
-  Material.DiffuseColor.Z = 0.8f;
-  Result = Material.DiffuseColor;
 
-  if(SceneIntersect(Origin, Dir, &Point, &Normal, &Material, GameState))
+  if(Depth > 2 || !SceneIntersect(Origin, Dir, &Point, &Normal, &Material, GameState))
     {
-      // NOTE(l4v): Return sphere color
-      real32 Diffusion = 0;
-      real32 Specular = 0;
-      for(size_t LightsIndex = 0;
-	  LightsIndex < GameState->LightCount;
-	  ++LightsIndex)
-	{
-	  vector3f LightDir = Difference3D(&GameState->Lights[LightsIndex].Position, &Point);
-	  LightDir = Normalize3D(&LightDir);
+      // NOTE(l4v): No intersection, return background color
+      // NOTE(l4v): Background color
+      Material.DiffuseColor.X = 0.2f;
+      Material.DiffuseColor.Y = 0.7f;
+      Material.DiffuseColor.Z = 0.8f;
+      Result = Material.DiffuseColor;
+      return Result;
+    }
+
+  real32 Epsilon = 1e-3f;
+  vector3f Bias = Scale3D(&Normal, Epsilon);
+
+  // NOTE(l4v): Reflections
+  vector3f ReflectDir = {};
+  vector3f ReflectOrigin = {};
+  vector3f ReflectColor = {};  
+  ReflectDir = Reflect3D(Dir, &Normal);
+  ReflectDir = Normalize3D(&ReflectDir);
+  ReflectOrigin = Dot3D(&ReflectDir, &Normal) < 0 ?
+    Subtract3D(&Point, &Bias) : Add3D(&Point, &Bias);
+  ReflectColor = CastRay(&ReflectOrigin, &ReflectDir, GameState, Depth + 1);
+  
+  // NOTE(l4v): Intersection happened, return object color
+  real32 Diffusion = 0.0f;
+  real32 Specular = 0.0f;
+  for(size_t LightsIndex = 0;
+      LightsIndex < GameState->LightCount;
+      ++LightsIndex)
+    {
+      vector3f LightDir = {};
+      LightDir = Subtract3D(&GameState->Lights[LightsIndex].Position, &Point);
+      LightDir = Normalize3D(&LightDir);
 
 #if SHADOWS
-	  // TODO NOTE(l4v): Shadows
-	  // ------------------
-	  real32 LightDistance = GetLen3D(LightDir);
-	  vector3f ShadowOrigin = {};
-	  vector3f ScaledNormal = Scale3D(&Normal, 1e-3);
-	  ShadowOrigin = Dot3D(&LightDir, &Normal) < 0 ?
-	    Difference3D(&Point, &ScaledNormal) : Add3D(&Point, &ScaledNormal);
-	  vector3f ShadowPoint = {};
-	  vector3f ShadowNormal = {};
-	  material TmpMaterial = {};
-	  if(SceneIntersect(&ShadowOrigin, &LightDir, &ShadowPoint, &ShadowNormal, &TmpMaterial, GameState) &&
-	     GetLen3D(Difference3D(&ShadowPoint, &ShadowOrigin)) < LightDistance)
-	    {
-	      continue;
-	    }
+      // TODO NOTE(l4v): Shadows
+      // ------------------
+      real32 LightLen = GetLen3D(LightDir);
+      vector3f ShadowOrigin = {};
+      ShadowOrigin = Dot3D(&LightDir, &Normal) < 0 ?
+	Subtract3D(&Point, &Bias) : Add3D(&Point, &Bias);
+      vector3f ShadowPoint = {};
+      vector3f ShadowNormal = {};
+      material TmpMaterial = {};
+      if(SceneIntersect(&ShadowOrigin, &LightDir, &ShadowPoint, &ShadowNormal, &TmpMaterial, GameState)
+	 && GetLen3D(Subtract3D(&ShadowPoint, &ShadowOrigin)) < LightLen)
+	{
+	  continue;
+	}
+	  
 #endif
 	    
-	  // NOTE(l4v): Diffusion
-	  // --------------------
-	  Diffusion += GameState->Lights[LightsIndex].Intensity * MaxReal(0.0f, Dot3D(&LightDir, &Normal));
-
-	  // NOTE(l4v): Specular
-	  // -------------------
-	  vector3f NegLightDir = Scale3D(&LightDir, -1);
-	  vector3f Reflected = Reflect3D(&NegLightDir, &Normal);
-	  Reflected = Scale3D(&Reflected, -1.0f);
-	  Specular += (real32)pow(MaxReal(0.0f, Dot3D(&Reflected, Dir)), Material.SpecularExponent) *
-	    GameState->Lights[LightsIndex].Intensity;
-	}
-      Result = Scale3D(&Material.DiffuseColor, Diffusion * Material.Albedo.X);
-      vector3f Identity = {.X = 1.0f, .Y = 1.0f, .Z = 1.0f};
-      Identity = Scale3D(&Identity, Specular * Material.Albedo.Y);
-      Result = Add3D(&Result, &Identity);
+      // NOTE(l4v): Diffusion
+      // --------------------
+      Diffusion += GameState->Lights[LightsIndex].Intensity * MaxReal(0.0f, Dot3D(&LightDir, &Normal));
+      // NOTE(l4v): Specular
+      // -------------------
+      vector3f NegLightDir = Scale3D(&LightDir, -1.0f);
+      vector3f Reflected = Reflect3D(&NegLightDir, &Normal);
+      Reflected = Scale3D(&Reflected, -1.0f);
+      Specular += pow(MaxReal(0.0f, Dot3D(&Reflected, Dir)), Material.SpecularExponent) *
+	GameState->Lights[LightsIndex].Intensity;
     }
+  vector3f DiffusionPart = Scale3D(&Material.DiffuseColor, Diffusion * Material.Albedo.X);
+  vector3f SpecularPart = {.X = Specular * Material.Albedo.Y,
+			   .Y = Specular * Material.Albedo.Y,
+			   .Z = Specular * Material.Albedo.Y};
+  vector3f ReflectionPart = Scale3D(&ReflectColor, Material.Albedo.Z);
+  Result = Add3D(&DiffusionPart, &SpecularPart);
+  Result = Add3D(&Result, &ReflectionPart);
+      
   return Result;
 }
 
 internal void
 Render(game_state* GameState, linux_offscreen_buffer* Buffer)
 {
-  real32 FOV = Pi32 / 2.0f;
+  real32 FOV = (Pi32 / 3.0f);
   uint32* Pixel = (uint32*)Buffer->Memory;
   
   // NOTE(l4v): Drawing the scene
@@ -200,18 +233,19 @@ Render(game_state* GameState, linux_offscreen_buffer* Buffer)
 	      real32 X = (2 * (Column + 0.5f) / (real32)Buffer->Width - 1) *
 		tan(FOV / 2.0f) * Buffer->Width / (real32)Buffer->Height;
 	      real32 Y = -(2 * (Row + 0.5f) / (real32)Buffer->Height - 1) * tan(FOV / 2.0f);
-	      vector3f Temp = {.X = X, .Y = Y, .Z = -1};
+	      real32 CameraDistance = 1.0f;
+	      vector3f Temp = {.X = X, .Y = Y, .Z = -CameraDistance};
 	      vector3f Dir = Normalize3D(&Temp);
 	      vector3f Zero3D = {};
-	      vector3f RealColor = CastRay(&Zero3D, &Dir, GameState);
+	      vector3f RealColor = CastRay(&Zero3D, &Dir, GameState, 0);
 	      real32 MaxValue = MaxReal(RealColor.X, MaxReal(RealColor.Y, RealColor.Z));
-	      if(MaxValue > 1)
+	      if(MaxValue > 1.0f)
 		{
 		  RealColor = Scale3D(&RealColor, 1.0f / MaxValue);
 		}
-	      *Pixel++ = ((RoundReal32ToUInt32(RealColor.X * 255.0f) << 24) |
-			  (RoundReal32ToUInt32(RealColor.Y * 255.0f) << 16) |
-			  (RoundReal32ToUInt32(RealColor.Z * 255.0f) << 8));
+	      *Pixel++ = ((RoundReal32ToUInt32(ClampReal32(RealColor.X, 0.0f, 1.0f) * 255.0f) << 24) |
+			  (RoundReal32ToUInt32(ClampReal32(RealColor.Y, 0.0f, 1.0f) * 255.0f) << 16) |
+			  (RoundReal32ToUInt32(ClampReal32(RealColor.Z, 0.0f, 1.0f) * 255.0f) << 8));
 	    }
 	}
     }
@@ -254,13 +288,17 @@ int main()
 				 -1,
 				 0);
   material Ivory = {};
-  Ivory.Albedo = (vector2f){.X = 0.6f, .Y = 0.3f};
+  Ivory.Albedo = (vector3f){.X = 0.6f, .Y = 0.3f, .Z = 0.1f};
   Ivory.DiffuseColor = (vector3f){.X = 0.4f, .Y = 0.4f, .Z = 0.3f};
   Ivory.SpecularExponent = 50.0f;
   material RedRubber = {};
-  RedRubber.Albedo = (vector2f){.X = 0.9f, .Y = 0.1f};
+  RedRubber.Albedo = (vector3f){.X = 0.9f, .Y = 0.1f, .Z = 0.0f};
   RedRubber.DiffuseColor = (vector3f){.X = 0.3f, .Y = 0.1f, .Z = 0.1f};
   RedRubber.SpecularExponent = 10.0f;
+  material Mirror = {};
+  Mirror.Albedo = (vector3f){.X = 0.0f, .Y = 10.0f, .Z = 0.8f};
+  Mirror.DiffuseColor = (vector3f){.X = 1.0f, .Y = 1.0f, .Z = 1.0f};
+  Mirror.SpecularExponent = 10.0f;
   
   
   game_state GameState = {};
@@ -284,7 +322,7 @@ int main()
   GameState.Spheres[1].Center =
     (vector3f){.X = -1.0f , .Y = -1.5f, .Z = -12.0f};
   GameState.Spheres[1].Radius = 2;
-  GameState.Spheres[1].Material = RedRubber;
+  GameState.Spheres[1].Material = Mirror;
   
   GameState.Spheres[2].Center =
     (vector3f){.X = 1.5f , .Y = -0.5f, .Z = -18.0f};
@@ -294,9 +332,23 @@ int main()
   GameState.Spheres[3].Center =
     (vector3f){.X = 7 , .Y = 5, .Z = -18.0f};
   GameState.Spheres[3].Radius = 4;
-  GameState.Spheres[3].Material = Ivory;
+  GameState.Spheres[3].Material = Mirror;
   
   Render(&GameState, &GlobalBackBuffer);
+
+  vector3f Incoming = {.X = 4, .Y = -3, .Z = 0};
+  vector3f Normal = {.X = -1, .Y = 0, .Z = 0};
+  vector3f Reflected = Reflect3D(&Incoming, &Normal);
+  // TODO(l4v): Debugging
+  vector3f ScaledNormal = 
+
+  printf("Incoming: %f %f %f\nNormal: %f %f %f\nReflected: %f %f %f\nDot product: %f\nNormal len: %f\n",
+	 Incoming.X, Incoming.Y, Incoming.Z,
+	 Normal.X, Normal.Y, Normal.Z,
+	 Reflected.X, Reflected.Y, Reflected.Z,
+	 Dot3D(&Incoming, &Reflected),
+	 GetLen3D(Normal),
+	 );
 
   munmap(GlobalBackBuffer.Memory, FrameBufferSize);
   return 0;

@@ -36,7 +36,7 @@ typedef struct
 typedef struct
 {
   vector3f DiffuseColor;
-  vector2f Albedo;
+  vector3f Albedo;
   real32 SpecularExponent;
 } material;
 
@@ -63,7 +63,22 @@ typedef struct
   int32 LightCount;
 } game_state;
 
-internal int32
+internal inline real32
+ClampReal32(real32 Real32, real32 Min, real32 Max)
+{
+  real32 Result = Real32;
+  if(Result < Min)
+    {
+      Result = Min;
+    }
+  if(Result > Max)
+    {
+      Result = Max;
+    }
+  return Result;
+}
+
+internal inline int32
 RoundReal32ToInt32(real32 Real32)
 {
   int32 Result = (int32)(Real32 + 0.5f);
@@ -71,7 +86,7 @@ RoundReal32ToInt32(real32 Real32)
   return Result;
 }
 
-internal uint32
+internal inline uint32
 RoundReal32ToUInt32(real32 Real32)
 {
   uint32 Result = (uint32)(Real32 + 0.5f);
@@ -91,7 +106,7 @@ Add3D(vector3f* A, vector3f* B)
 }
 
 internal vector3f
-Difference3D(vector3f* A, vector3f* B)
+Subtract3D(vector3f* A, vector3f* B)
 {
   // NOTE(l4v): A - B
   vector3f Result = {};
@@ -103,7 +118,7 @@ Difference3D(vector3f* A, vector3f* B)
 }
 
 internal vector2f
-Difference2D(vector2f* A, vector2f* B)
+Subtract2D(vector2f* A, vector2f* B)
 {
   // NOTE(l4v): A - B
   vector2f Result = {};
@@ -124,10 +139,17 @@ Scale3D(vector3f* A, real32 Scale)
   return Result;
 }
 
-internal inline real32
+internal real32
 Dot3D(vector3f* A, vector3f* B)
 {
-  return A->X * B->X + A->Y * B->Y + A->Z * B->Z;
+  real32 Result = 0.0f;
+  for(size_t i = 0;
+      i < 3;
+      ++i)
+    {
+      Result += A->E[i] * B->E[i];
+    }
+  return Result;
 }
 
 internal inline real32
@@ -140,21 +162,22 @@ internal vector3f
 Normalize3D(vector3f* A)
 {
   vector3f Result = {};
-  real32 Length = sqrt(Dot3D(A, A));
-  Result.X = A->X / Length;
-  Result.Y = A->Y / Length;
-  Result.Z = A->Z / Length;
+  real32 Length = GetLen3D(*A);
+  Result = Scale3D(A, 1 / Length);
 
   return Result;
 }
 
 internal vector3f
-Reflect3D(vector3f* A, vector3f* B)
+Reflect3D(vector3f* Incoming, vector3f* Normal)
 {
   vector3f Result = {};
-  real32 ABDot = Dot3D(A, B);
-  vector3f ScaledB = Scale3D(B, 2.0f * ABDot);
-  Result = Difference3D(A, &ScaledB); 
+  /* real32 ABDot = Dot3D(A, B); */
+  /* vector3f ScaledB = Scale3D(B, 2.0f * ABDot); */
+  /* Result = Subtract3D(A, &ScaledB);  */
+  real32 IncomingDotNormal = Dot3D(Incoming, Normal);
+  vector3f ScaledNormal = Scale3D(Normal, 2.0f * IncomingDotNormal);
+  Result = Subtract3D(Incoming, &ScaledNormal);
   
   return Result;
 }
