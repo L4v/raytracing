@@ -56,7 +56,7 @@ typedef struct
 
 typedef struct
 {
-  sphere Spheres[4];
+  sphere Spheres[5];
   int32 SphereCount;
 
   light Lights[3];
@@ -183,13 +183,13 @@ Reflect3D(vector3f* Incoming, vector3f* Normal)
 }
 
 internal inline real32
-MaxReal(real32 X, real32 Y)
+MaxReal32(real32 X, real32 Y)
 {
   return X > Y ? X : Y;
 }
 
 internal inline real32
-MinReal(real32 X, real32 Y)
+MinReal32(real32 X, real32 Y)
 {
   return X < Y ? X : Y;
 }

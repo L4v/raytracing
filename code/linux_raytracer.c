@@ -36,15 +36,43 @@ typedef double real64;
 global_variable linux_offscreen_buffer GlobalBackBuffer;
 
 internal bool32
-RaySphereIntersect(vector3f* Origin, vector3f* Dir, vector3f* Normal,
+RaySphereIntersect(vector3f* Origin, vector3f* Dir,
 		   sphere* Sphere, real32* SphereDist)
 {
-  // dot(P - C, P - C) = r^2
-  //
+  /* NOTE(l4v):
+     Sphere formula: dot((P - C), (P - C)) = r^2;
+     P - Point on sphere
+     C - Center of sphere
+     r - Radius of sphere
+
+     Ray formula: P(t) = A + t*B
+     P - Point on ray
+     A - Origin of ray
+     B - Unit direction vector of ray
+     t - Parameter used to move along the Ray vector
+
+     Combined formulas: dot((A + t*B - C), (A + t*B - C)) = r^2
+     When solved, you get: a*t^2 + b*t + c = 0
+     a = dot(B, B);
+     b = 2 * dot(B, A - C);
+     c = dot((A - C), (A - C)) - r^2
+
+     Then just check whether the determinant
+     D = b^2 - 4ac
+     Is < 0 - No intersection
+     Is = 0 - One point intersection
+     Is > 0 - Two point intersection (take the lesser positive point)
+
+     The point of intersection represents the distance
+     from the ray origin to the sphere
+  */
+  
+  // NOTE(l4v): Here I used uppercase A, B, C, they are
+  // the lowercase equivalent from above
   vector3f OC = Subtract3D(Origin, &Sphere->Center);
-  vector3f NormalDir = Normalize3D(Dir);
-  real32 A = Dot3D(&Dir, &Dir);
-  real32 B = 2.0f * Dot3D(&OC, &Dir);
+  vector3f UnitDir = Normalize3D(Dir);
+  real32 A = Dot3D(&UnitDir, &UnitDir);
+  real32 B = 2.0f * Dot3D(&OC, &UnitDir);
   real32 C = Dot3D(&OC, &OC) - (Sphere->Radius * Sphere->Radius);
   real32 Discriminant = B*B - 4*A*C;
 
@@ -53,24 +81,113 @@ RaySphereIntersect(vector3f* Origin, vector3f* Dir, vector3f* Normal,
       return 0;
     }
 
-  // TODO(l4v): Calc point and normal here?
-  *Normal = Normalize3D();
   *SphereDist = (-B - sqrt(Discriminant)) / (2.0f * A);
   return 1;
+}
+
+internal bool32
+SceneIntersect(vector3f* Origin, vector3f* Dir,
+	       vector3f* Normal, vector3f* Point,
+	       material* Material, game_state* GameState)
+{
+  /* // NOTE(l4v): Sphere collisions */
+  real32 ClosestSphere = FLT_MAX;
+  for(size_t SphereIndex = 0;
+      SphereIndex < GameState->SphereCount;
+      ++SphereIndex)
+    {
+      real32 CurrSphereDist = 0;
+      sphere* CurrSphere = &GameState->Spheres[SphereIndex];
+      if(RaySphereIntersect(Origin, Dir, CurrSphere, &CurrSphereDist)
+  	 && (CurrSphereDist < ClosestSphere))
+  	{
+  	  ClosestSphere = CurrSphereDist;
+
+  	  vector3f ScaledDir = Scale3D(Dir, ClosestSphere);
+  	  *Point = Add3D(Origin, &ScaledDir);
+  	  *Normal = Subtract3D(Point, &CurrSphere->Center);
+  	  *Normal = Normalize3D(Normal);
+  	  *Material = CurrSphere->Material;
+  	}
+    }
+  
+  return (ClosestSphere < 1000);
 }
 
 internal vector3f
 CastRay(vector3f* Origin, vector3f* Direction, game_state* GameState)
 {
-  vector3f Result = (vector3f){};
-  
+  vector3f Result = {};
+  material Material = {};
+  vector3f Point = (vector3f){};
+  vector3f Normal = (vector3f){};
+
+  if(!SceneIntersect(Origin, Direction, &Normal, &Point, &Material, GameState))
+    {
+      // NOTE(l4v): Return background color
+      Result = (vector3f){.X = 0.8f, .Y = 0.8f, .Z = 0.8f};
+      return Result;
+    }
+
+  // NOTE(l4v): Calculating lighting
+  real32 DiffusionIndex = 0.0f;
+  real32 SpecularIndex = 0.0f;
+  for(size_t LightsIndex = 0;
+      LightsIndex < GameState->LightCount;
+      ++LightsIndex)
+    {
+      real32 Epsilon = 1e-3;
+      vector3f Bias = Scale3D(&Normal, Epsilon);
+      light* CurrLight = &GameState->Lights[LightsIndex];
+      vector3f LightDir = Subtract3D(&CurrLight->Position, &Point);
+      real32 LightLen = GetLen3D(LightDir);
+      LightDir = Normalize3D(&LightDir);
+      
+#if 1
+      // NOTE(l4v): Shadows
+      // ------------------
+      vector3f ShadowOrigin = {};
+      if(Dot3D(&LightDir, &Normal) >= 0.0f)
+	{
+	  Bias = Scale3D(&Bias, -1.0f);
+	}
+      ShadowOrigin = Add3D(&Point, &Bias);
+      vector3f ShadowPoint = {};
+      vector3f ShadowNormal = {};
+      material TmpMaterial = {};
+      if(SceneIntersect(&ShadowOrigin, &LightDir, &ShadowNormal, &ShadowPoint, &TmpMaterial, GameState)
+	 && GetLen3D(Subtract3D(&ShadowPoint, &ShadowOrigin)) < LightLen)
+	{
+	  continue;
+	}
+#endif
+      // NOTE(l4v): Diffusion
+      // --------------------
+      DiffusionIndex += CurrLight->Intensity *
+	MaxReal32(0.0f, Dot3D(&LightDir, &Normal));
+
+      // NOTE(l4v): Specular
+      // -------------------
+      vector3f NegLightDir = Scale3D(&LightDir, -1);
+      vector3f Reflected = Reflect3D(&NegLightDir, &Normal);
+      Reflected = Scale3D(&Reflected, -1);
+      SpecularIndex += pow(MaxReal32(0.0f, Dot3D(&Reflected, Direction)), Material.SpecularExponent) *
+	CurrLight->Intensity;
+      
+    }
+  vector3f DiffusionPart = Scale3D(&Material.DiffuseColor, DiffusionIndex * Material.Albedo.X);
+  vector3f SpecularPart = {.X = SpecularIndex * Material.Albedo.Y,
+			   .Y = SpecularIndex * Material.Albedo.Y,
+			   .Z = SpecularIndex * Material.Albedo.Y};
+  Result = (vector3f){};
+  Result = Add3D(&DiffusionPart, &SpecularPart);
   return Result;
 }
 
 internal void
 Render(game_state* GameState, linux_offscreen_buffer* Buffer)
 {
-  real32 FOV = Pi32 / 2.0f;
+  real32 FOV = Pi32 / 3.0f;
   uint32* Pixel = (uint32*)Buffer->Memory;
   for(size_t Row = 0;
       Row < Buffer->Height;
@@ -80,10 +197,9 @@ Render(game_state* GameState, linux_offscreen_buffer* Buffer)
 	  Column < Buffer->Width;
 	  ++Column)
 	{
-	  real32 PixelX = ((2 * (Column + 0.5f)) / (Buffer->Width)) *
-	    tan(FOV / 2.0f - 1) * ((Buffer->Width) / (Buffer->Height));
-	  real32 PixelY = ((2 * (Row + 0.5f)) / (Buffer->Height)) *
-	    tan(FOV / 2.0f - 1);
+	  real32 PixelX = (2 * (Column + 0.5f) / (real32)Buffer->Width - 1) *
+	    tan(FOV / 2.0f) * Buffer->Width / (real32)Buffer->Height;
+	  real32 PixelY = -(2 * (Row + 0.5f) / (real32)Buffer->Height - 1) * tan(FOV / 2.0f);
 	  real32 Distance = 1.0f;
 
 	  vector3f Origin = {};
@@ -91,6 +207,11 @@ Render(game_state* GameState, linux_offscreen_buffer* Buffer)
 	  vector3f CameraDir = Normalize3D(&Camera);
 	  
 	  vector3f RealColor = CastRay(&Origin, &CameraDir, GameState);
+	  real32 MaxValue = MaxReal32(RealColor.X, MaxReal32(RealColor.Y, RealColor.Z));
+	  if(MaxValue > 1)
+	    {
+	      RealColor = Scale3D(&RealColor, (1.0f / MaxValue));
+	    }
 	  *Pixel++ = ((RoundReal32ToUInt32(RealColor.X * 255.0f) << 24) |
 		      (RoundReal32ToUInt32(RealColor.Y * 255.0f) << 16) |
 		      (RoundReal32ToUInt32(RealColor.Z * 255.0f) << 8));
@@ -170,7 +291,7 @@ int main()
   GameState.Spheres[1].Center =
     (vector3f){.X = -1.0f , .Y = -1.5f, .Z = -12.0f};
   GameState.Spheres[1].Radius = 2;
-  GameState.Spheres[1].Material = Mirror;
+  GameState.Spheres[1].Material = RedRubber;
   
   GameState.Spheres[2].Center =
     (vector3f){.X = 1.5f , .Y = -0.5f, .Z = -18.0f};
@@ -180,7 +301,12 @@ int main()
   GameState.Spheres[3].Center =
     (vector3f){.X = 7 , .Y = 5, .Z = -18.0f};
   GameState.Spheres[3].Radius = 4;
-  GameState.Spheres[3].Material = Mirror;
+  GameState.Spheres[3].Material = Ivory;
+  
+  GameState.Spheres[4].Center =
+    (vector3f){.X = -5 , .Y = 5, .Z = -14.0f};
+  GameState.Spheres[4].Radius = 4;
+  GameState.Spheres[4].Material = Mirror;
   
   Render(&GameState, &GlobalBackBuffer);
   
