@@ -110,6 +110,11 @@ SceneIntersect(vector3f* Origin, vector3f* Dir,
   	  *Material = CurrSphere->Material;
   	}
     }
+
+  material LineMaterial = {};
+  LineMaterial.Albedo = (vector3f){.X = 0.6f, .Y = 0.3f, .Z = 0.1f};
+  LineMaterial.DiffuseColor = (vector3f){.X = 0.4f, .Y = 0.4f, .Z = 0.3f};
+  LineMaterial.SpecularExponent = 50.0f;
   
   return (ClosestSphere < 1000);
 }
@@ -146,19 +151,18 @@ CastRay(vector3f* Origin, vector3f* Direction, game_state* GameState)
 #if 1
       // NOTE(l4v): Shadows
       // ------------------
-      vector3f ShadowOrigin = {};
+      vector3f ShadowOrigin = Point;
       if(Dot3D(&LightDir, &Normal) >= 0.0f)
 	{
 	  Bias = Scale3D(&Bias, -1.0f);
 	}
-      ShadowOrigin = Add3D(&Point, &Bias);
+      ShadowOrigin = Add3D(&ShadowOrigin, &Bias);
       vector3f ShadowPoint = {};
       vector3f ShadowNormal = {};
       material TmpMaterial = {};
       if(SceneIntersect(&ShadowOrigin, &LightDir, &ShadowNormal, &ShadowPoint, &TmpMaterial, GameState)
 	 && GetLen3D(Subtract3D(&ShadowPoint, &ShadowOrigin)) < LightLen)
 	{
-	  continue;
 	}
 #endif
       // NOTE(l4v): Diffusion
