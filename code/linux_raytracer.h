@@ -56,7 +56,7 @@ typedef struct
 
 typedef struct
 {
-  sphere Spheres[5];
+  sphere Spheres[1];
   int32 SphereCount;
 
   light Lights[3];
@@ -94,7 +94,7 @@ RoundReal32ToUInt32(real32 Real32)
   return Result;
 }
 
-internal vector3f
+internal inline vector3f
 Add3D(vector3f* A, vector3f* B)
 {
   vector3f Result = {};
@@ -117,7 +117,7 @@ Subtract3D(vector3f* A, vector3f* B)
   return Result;
 }
 
-internal vector2f
+internal inline vector2f
 Subtract2D(vector2f* A, vector2f* B)
 {
   // NOTE(l4v): A - B
@@ -128,7 +128,7 @@ Subtract2D(vector2f* A, vector2f* B)
   return Result;
 }
 
-internal vector3f
+internal inline vector3f
 Scale3D(vector3f* A, real32 Scale)
 {
   vector3f Result = {};
@@ -139,7 +139,7 @@ Scale3D(vector3f* A, real32 Scale)
   return Result;
 }
 
-internal real32
+internal inline real32
 Dot3D(vector3f* A, vector3f* B)
 {
   real32 Result = 0.0f;
@@ -158,7 +158,7 @@ GetLen3D(vector3f A)
   return sqrt(A.X * A.X + A.Y * A.Y + A.Z * A.Z);
 }
 
-internal vector3f
+internal inline vector3f
 Normalize3D(vector3f* A)
 {
   vector3f Result = {};
@@ -168,7 +168,7 @@ Normalize3D(vector3f* A)
   return Result;
 }
 
-internal vector3f
+internal inline vector3f
 Reflect3D(vector3f* Incoming, vector3f* Normal)
 {
   vector3f Result = {};
