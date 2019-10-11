@@ -78,3 +78,7 @@
 ;; Show line numbers
 (when (version<= "26.0.50" emacs-version )
   (global-display-line-numbers-mode))
+  
+;; Local Variables:
+;; eval: (face-remap-add-relative 'default :family "Monospace")
+;; End:

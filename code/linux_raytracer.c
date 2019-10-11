@@ -35,6 +35,36 @@ typedef double real64;
 
 global_variable linux_offscreen_buffer GlobalBackBuffer;
 
+internal vector3f
+Refract(vector3f* In, vector3f* Normal, real32* RefractiveIndex)
+{
+  vector3f Result = (vector3f){};
+  real32 cosi = - MaxReal32(-1.f, MinReal32(1.f, Dot3D(In, Normal)));
+  real32 etai = 1;
+  real32 etat = *RefractiveIndex;
+  vector3f N = *Normal;
+  if (cosi < 0)
+    {
+      // NOTE(l4v): If the ray is inside the object, swap the indices and
+      // invert the normal to get the correct result
+      cosi = -cosi;
+      real32 tmp = etai;
+      etai = etat;
+      etat = tmp;
+      N = Scale3D(Normal, -1);
+    }
+  real32 eta = etai / etat;
+  real32 k = 1 - eta*eta*(1 - cosi*cosi);
+  vector3f ScaledIn = Scale3D(In, eta);
+  vector3f ScaledNormal = Scale3D(&N, (eta * cosi - sqrtf(k)));
+  if(k >= 0)
+    {
+      Result = Add3D(&ScaledIn, &ScaledNormal);
+    }
+  
+  return Result;
+}
+
 internal bool32
 RaySphereIntersect(vector3f* Origin, vector3f* Dir,
 		   sphere* Sphere, real32* SphereDist)
@@ -82,6 +112,14 @@ RaySphereIntersect(vector3f* Origin, vector3f* Dir,
     }
 
   *SphereDist = (-B - sqrt(Discriminant)) / (2.0f * A);
+  if(*SphereDist < 0)
+    {
+      *SphereDist = (-B + sqrt(Discriminant)) / (2.0f * A);
+    }
+  if(*SphereDist < 0)
+    {
+      return 0;
+    }
   return 1;
 }
 
@@ -104,7 +142,7 @@ SceneIntersect(vector3f* Origin, vector3f* Dir,
   	  ClosestSphere = CurrSphereDist;
 
   	  vector3f ScaledDir = Scale3D(Dir, ClosestSphere);
-  	  *Point = Add3D(Origin, &ScaledDir);              
+  	  *Point = Add3D(Origin, &ScaledDir);
   	  *Normal = Subtract3D(Point, &CurrSphere->Center);
   	  *Normal = Normalize3D(Normal);
   	  *Material = CurrSphere->Material;
@@ -115,20 +153,36 @@ SceneIntersect(vector3f* Origin, vector3f* Dir,
 }
 
 internal vector3f
-CastRay(vector3f* Origin, vector3f* Direction, game_state* GameState)
+CastRay(vector3f* Origin, vector3f* Direction, game_state* GameState, size_t Depth)
 {
   vector3f Result = {};
   material Material = {};
   vector3f Point = (vector3f){};
   vector3f Normal = (vector3f){};
+  real32 Epsilon = 1e-3;
 
-  if(!SceneIntersect(Origin, Direction, &Normal, &Point, &Material, GameState))
+  if(Depth > 4 || !SceneIntersect(Origin, Direction, &Normal, &Point, &Material, GameState))
     {
       // NOTE(l4v): Return background color
       Result = (vector3f){.X = 0.8f, .Y = 0.8f, .Z = 0.8f};
       return Result;
     }
 
+  vector3f Bias = Scale3D(&Normal, Epsilon);
+  vector3f ReflectDir = Reflect3D(Direction, &Normal);
+  ReflectDir = Normalize3D(&ReflectDir);
+  
+  vector3f RefractDir = Refract(Direction, &Normal, &Material.RefractiveIndex);
+  RefractDir = Normalize3D(&RefractDir);
+  
+  vector3f ReflectOrigin = Dot3D(&ReflectDir, &Normal) < 0 ?
+    Subtract3D(&Point, &Bias) : Add3D(&Point, &Bias);
+  vector3f RefractOrigin = Dot3D(&RefractDir, &Normal) < 0 ?
+    Subtract3D(&Point, &Bias) : Add3D(&Point, &Bias);
+  
+  vector3f ReflectColor = CastRay(&ReflectOrigin, &ReflectDir, GameState, Depth + 1);
+  vector3f RefractColor = CastRay(&RefractOrigin, &RefractDir, GameState, Depth + 1);
+  
   // NOTE(l4v): Calculating lighting
   real32 DiffusionIndex = 0.0f;
   real32 SpecularIndex = 0.0f;
@@ -136,20 +190,19 @@ CastRay(vector3f* Origin, vector3f* Direction, game_state* GameState)
       LightsIndex < GameState->LightCount;
       ++LightsIndex)
     {
-      real32 Epsilon = 1e-3;
-      vector3f Bias = Scale3D(&Normal, Epsilon);
+      Bias = Scale3D(&Normal, Epsilon);
       light* CurrLight = &GameState->Lights[LightsIndex];
       vector3f LightDir = Subtract3D(&CurrLight->Position, &Point);
-      real32 LightLen = GetLen3D(LightDir);
+      real32 LightLen = GetLen3D(Subtract3D(&CurrLight->Position, &Point));
       LightDir = Normalize3D(&LightDir);
       
-#if 1
+#if SHADOWS
       // NOTE(l4v): Shadows
       // ------------------
       vector3f ShadowOrigin = {};
-      if(Dot3D(&LightDir, &Normal) > 0)
+      if(Dot3D(&LightDir, &Normal) < 0.0f)
 	{
-	  Scale3D(&Bias, -1);
+	  Bias = Scale3D(&Bias, -1.0f);
 	}
       ShadowOrigin = Add3D(&Point, &Bias);
       vector3f ShadowPoint = {};
@@ -164,7 +217,7 @@ CastRay(vector3f* Origin, vector3f* Direction, game_state* GameState)
       // NOTE(l4v): Diffusion
       // --------------------
       DiffusionIndex += CurrLight->Intensity *
-	MaxReal32(0.0f, Dot3D(&LightDir, &Normal));
+      	MaxReal32(0.0f, Dot3D(&LightDir, &Normal));
 
       // NOTE(l4v): Specular
       // -------------------
@@ -172,15 +225,18 @@ CastRay(vector3f* Origin, vector3f* Direction, game_state* GameState)
       vector3f Reflected = Reflect3D(&NegLightDir, &Normal);
       Reflected = Scale3D(&Reflected, -1);
       SpecularIndex += pow(MaxReal32(0.0f, Dot3D(&Reflected, Direction)), Material.SpecularExponent) *
-	CurrLight->Intensity;
+      	CurrLight->Intensity;
       
     }
   vector3f DiffusionPart = Scale3D(&Material.DiffuseColor, DiffusionIndex * Material.Albedo.X);
   vector3f SpecularPart = {.X = SpecularIndex * Material.Albedo.Y,
-			   .Y = SpecularIndex * Material.Albedo.Y,
-			   .Z = SpecularIndex * Material.Albedo.Y};
-  Result = (vector3f){};
+  			   .Y = SpecularIndex * Material.Albedo.Y,
+  			   .Z = SpecularIndex * Material.Albedo.Y};
+  vector3f ReflectPart = Scale3D(&ReflectColor, Material.Albedo.Z);
+  vector3f RefractPart = Scale3D(&RefractColor, Material.Albedo.W);
   Result = Add3D(&DiffusionPart, &SpecularPart);
+  Result = Add3D(&Result, &ReflectPart);
+  Result = Add3D(&Result, &RefractPart);
   return Result;
 }
 
@@ -206,7 +262,7 @@ Render(game_state* GameState, linux_offscreen_buffer* Buffer)
 	  vector3f Camera = {.X = PixelX, .Y = PixelY, .Z = -Distance};
 	  vector3f CameraDir = Normalize3D(&Camera);
 	  
-	  vector3f RealColor = CastRay(&Origin, &CameraDir, GameState);
+	  vector3f RealColor = CastRay(&Origin, &CameraDir, GameState, 0);
 	  real32 MaxValue = MaxReal32(RealColor.X, MaxReal32(RealColor.Y, RealColor.Z));
 	  if(MaxValue > 1)
 	    {
@@ -257,17 +313,26 @@ int main()
 				 -1,
 				 0);
   material Ivory = {};
-  Ivory.Albedo = (vector3f){.X = 0.6f, .Y = 0.3f, .Z = 0.1f};
+  Ivory.Albedo = (vector4f){.X = 0.6f, .Y = 0.3f, .Z = 0.1f, .W = 0.0f};
   Ivory.DiffuseColor = (vector3f){.X = 0.4f, .Y = 0.4f, .Z = 0.3f};
   Ivory.SpecularExponent = 50.0f;
+  Ivory.RefractiveIndex = 1.0f;
   material RedRubber = {};
-  RedRubber.Albedo = (vector3f){.X = 0.9f, .Y = 0.1f, .Z = 0.0f};
+  RedRubber.Albedo = (vector4f){.X = 0.9f, .Y = 0.1f, .Z = 0.0f, .W = 0.0f};
   RedRubber.DiffuseColor = (vector3f){.X = 0.3f, .Y = 0.1f, .Z = 0.1f};
   RedRubber.SpecularExponent = 10.0f;
+  RedRubber.RefractiveIndex = 1.0f;
   material Mirror = {};
-  Mirror.Albedo = (vector3f){.X = 0.0f, .Y = 10.0f, .Z = 0.8f};
+  Mirror.Albedo = (vector4f){.X = 0.0f, .Y = 10.0f, .Z = 0.8f, .W = 0.0f};
   Mirror.DiffuseColor = (vector3f){.X = 1.0f, .Y = 1.0f, .Z = 1.0f};
-  Mirror.SpecularExponent = 10.0f;
+  Mirror.SpecularExponent = 1425.0f;
+  Mirror.RefractiveIndex = 1.0f;
+  
+  material Glass = {};
+  Glass.Albedo = (vector4f){.X = 0.0f, .Y = 0.5f, .Z = 0.1f, .W = 0.8f};
+  Glass.DiffuseColor = (vector3f){.X = 1.0f, .Y = 1.0f, .Z = 1.0f};
+  Glass.SpecularExponent = 10.0f;
+  Glass.RefractiveIndex = 1.5f;
   
   
   game_state GameState = {};
@@ -291,7 +356,7 @@ int main()
   GameState.Spheres[1].Center =
     (vector3f){.X = -1.0f , .Y = -1.5f, .Z = -12.0f};
   GameState.Spheres[1].Radius = 2;
-  GameState.Spheres[1].Material = RedRubber;
+  GameState.Spheres[1].Material = Glass;
   
   GameState.Spheres[2].Center =
     (vector3f){.X = 1.5f , .Y = -0.5f, .Z = -18.0f};

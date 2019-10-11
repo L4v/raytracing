@@ -12,6 +12,20 @@ typedef struct
 {
   union
   {
+    real32 E[4];
+    struct{
+      real32 X;
+      real32 Y;
+      real32 Z;
+      real32 W;
+    };
+  };
+} vector4f;
+
+typedef struct
+{
+  union
+  {
     real32 E[3];
     struct{
       real32 X;
@@ -36,8 +50,9 @@ typedef struct
 typedef struct
 {
   vector3f DiffuseColor;
-  vector3f Albedo;
+  vector4f Albedo;
   real32 SpecularExponent;
+  real32 RefractiveIndex;
 } material;
 
 typedef struct
@@ -56,7 +71,7 @@ typedef struct
 
 typedef struct
 {
-  sphere Spheres[1];
+  sphere Spheres[5];
   int32 SphereCount;
 
   light Lights[3];
@@ -94,7 +109,7 @@ RoundReal32ToUInt32(real32 Real32)
   return Result;
 }
 
-internal inline vector3f
+internal vector3f
 Add3D(vector3f* A, vector3f* B)
 {
   vector3f Result = {};
@@ -117,7 +132,7 @@ Subtract3D(vector3f* A, vector3f* B)
   return Result;
 }
 
-internal inline vector2f
+internal vector2f
 Subtract2D(vector2f* A, vector2f* B)
 {
   // NOTE(l4v): A - B
@@ -128,7 +143,7 @@ Subtract2D(vector2f* A, vector2f* B)
   return Result;
 }
 
-internal inline vector3f
+internal vector3f
 Scale3D(vector3f* A, real32 Scale)
 {
   vector3f Result = {};
@@ -139,7 +154,7 @@ Scale3D(vector3f* A, real32 Scale)
   return Result;
 }
 
-internal inline real32
+internal real32
 Dot3D(vector3f* A, vector3f* B)
 {
   real32 Result = 0.0f;
@@ -158,7 +173,7 @@ GetLen3D(vector3f A)
   return sqrt(A.X * A.X + A.Y * A.Y + A.Z * A.Z);
 }
 
-internal inline vector3f
+internal vector3f
 Normalize3D(vector3f* A)
 {
   vector3f Result = {};
@@ -168,7 +183,7 @@ Normalize3D(vector3f* A)
   return Result;
 }
 
-internal inline vector3f
+internal vector3f
 Reflect3D(vector3f* Incoming, vector3f* Normal)
 {
   vector3f Result = {};
