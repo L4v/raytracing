@@ -35,11 +35,37 @@ typedef double real64;
 
 global_variable linux_offscreen_buffer GlobalBackBuffer;
 
+internal void
+WriteImage(char* Filename, linux_offscreen_buffer* Buffer)
+{
+ 
+  // NOTE(l4v): Writing pixel info to file
+  FILE* File = fopen(Filename, "w");
+  if(!File)
+    {
+      printf("ERROR: COULD NOT OPEN FILE %s\n", Filename);
+      return;
+    }
+  fprintf(File, "P6\n%d %d\n255\n", Buffer->Width, Buffer->Height);
+  uint32* Pixel = (uint32*)Buffer->Memory;
+  for(size_t PixelIndex = 0;
+      PixelIndex < Buffer->Width * Buffer->Height;
+      ++PixelIndex)
+    {
+      uint8 Red = (uint8)((*Pixel) >> 24);
+      uint8 Green = (uint8)((*Pixel) >> 16);
+      uint8 Blue = (uint8)((*Pixel) >> 8);
+      fprintf(File, "%c%c%c", Red, Green, Blue);
+      Pixel++;
+    }
+  fclose(File);
+}
+
 internal vector3f
-Refract(vector3f* In, vector3f* Normal, real32* RefractiveIndex)
+Refract(vector3f* I, vector3f* Normal, real32* RefractiveIndex)
 {
   vector3f Result = (vector3f){};
-  real32 cosi = - MaxReal32(-1.f, MinReal32(1.f, Dot3D(In, Normal)));
+  real32 cosi = -MaxReal32(-1.f, MinReal32(1.f, Dot3D(I, Normal)));
   real32 etai = 1;
   real32 etat = *RefractiveIndex;
   vector3f N = *Normal;
@@ -55,11 +81,11 @@ Refract(vector3f* In, vector3f* Normal, real32* RefractiveIndex)
     }
   real32 eta = etai / etat;
   real32 k = 1 - eta*eta*(1 - cosi*cosi);
-  vector3f ScaledIn = Scale3D(In, eta);
+  vector3f ScaledI = Scale3D(I, eta);
   vector3f ScaledNormal = Scale3D(&N, (eta * cosi - sqrtf(k)));
   if(k >= 0)
     {
-      Result = Add3D(&ScaledIn, &ScaledNormal);
+      Result = Add3D(&ScaledI, &ScaledNormal);
     }
   
   return Result;
@@ -161,6 +187,7 @@ CastRay(vector3f* Origin, vector3f* Direction, game_state* GameState, size_t Dep
   vector3f Normal = (vector3f){};
   real32 Epsilon = 1e-3;
 
+  // NOTE(l4v): Check for recursion or lack of intersection
   if(Depth > 4 || !SceneIntersect(Origin, Direction, &Normal, &Point, &Material, GameState))
     {
       // NOTE(l4v): Return background color
@@ -168,6 +195,7 @@ CastRay(vector3f* Origin, vector3f* Direction, game_state* GameState, size_t Dep
       return Result;
     }
 
+  // NOTE(l4v): Reflection and refraction
   vector3f Bias = Scale3D(&Normal, Epsilon);
   vector3f ReflectDir = Reflect3D(Direction, &Normal);
   ReflectDir = Normalize3D(&ReflectDir);
@@ -273,29 +301,7 @@ Render(game_state* GameState, linux_offscreen_buffer* Buffer)
 		      (RoundReal32ToUInt32(RealColor.Z * 255.0f) << 8));
 	}
     }
-  
-  // NOTE(l4v): Writing pixel info to file
-  char* Filename = "../data/generated.ppm";
-  FILE* File = fopen(Filename, "w");
-  if(!File)
-    {
-      printf("ERROR: COULD NOT OPEN FILE %s\n", Filename);
-      return;
-    }
-  fprintf(File, "P6\n%d %d\n255\n", Buffer->Width, Buffer->Height);
-  Pixel = (uint32*)Buffer->Memory;
-  for(size_t PixelIndex = 0;
-      PixelIndex < Buffer->Width * Buffer->Height;
-      ++PixelIndex)
-    {
-      uint8 Red = (uint8)((*Pixel) >> 24);
-      uint8 Green = (uint8)((*Pixel) >> 16);
-      uint8 Blue = (uint8)((*Pixel) >> 8);
-      fprintf(File, "%c%c%c", Red, Green, Blue);
-      Pixel++;
-    }
-  fclose(File);
-  
+  WriteImage("../data/generated.ppm", Buffer);
 }
 
 int main()
